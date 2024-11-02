@@ -97,7 +97,7 @@ const Dashboard = () => {
       try {
         console.log(userId);
         const response = await fetch(
-          `http://localhost:8080/api/user/${userId}/people-list`
+          `https://task-manager-0yqb.onrender.com/api/user/${userId}/people-list`
         );
         if (!response.ok) {
           throw new Error(`Error: ${response.status} - ${response.statusText}`);
@@ -123,7 +123,7 @@ const Dashboard = () => {
       console.log(mail);
       try {
         const response = await fetch(`
-          http://localhost:8080/api/user/tasks-posted/${mail}`);
+          https://task-manager-0yqb.onrender.com/api/user/tasks-posted/${mail}`);
 
         if (!response.ok) {
           throw new Error("Failed to fetch tasks.");
@@ -192,7 +192,7 @@ const Dashboard = () => {
   const filterTasksByTimePeriod = async (period) => {
     try {
       const response = await axios.get(
-        `http://localhost:8080/api/user/filtertasks`,
+        `https://task-manager-0yqb.onrender.com/api/user/filtertasks`,
         {
           params: { period },
         }
@@ -226,7 +226,7 @@ const Dashboard = () => {
     console.log(userObject.id);
     try {
       const response = await axios.post(
-        "http://localhost:8080/api/user/add-people",
+        "https://task-manager-0yqb.onrender.com/api/user/add-people",
         { userId: userObject.id, email }
       );
       setIsPeopleListUpdated((prev) => !prev);
@@ -268,7 +268,7 @@ const Dashboard = () => {
       );
       console.log(newStatus, "changed baby");
       const response = await axios.put(
-        `http://localhost:8080/api/user/task/${taskId}/status`,
+        `https://task-manager-0yqb.onrender.com/api/user/task/${taskId}/status`,
         {
           status: newStatus,
         }
