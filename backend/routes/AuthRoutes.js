@@ -1,475 +1,574 @@
-const express = require("express");
-const bcrypt = require("bcryptjs");
-const jwt = require("jsonwebtoken");
-const User = require("../Model/UserModel"); // Import the User schema
-const Task = require("../Model/TaskModel");
-const router = express.Router();
-// Secret key for JWT
-const JWT_SECRET = "your_secret_key"; // Replace with your actual secret key
+import React, { useEffect, useState } from "react";
+import styles from "./Dashboard.module.css";
+import { useUser } from "../UserContext"; // Assuming correct path for context
+import logo from "../assets/logo.png";
+import logout from "../assets/Logout.png";
+import People from "../assets/People.png";
+import remove from "../assets/remove.png";
+import deleteimg from "../assets/delete.png";
+import axios from "axios";
+import TaskModal from "./AddTaskModal";
+import TaskCard from "./TaskCard";
+import Analytics from "./Analytics";
+import Settings from "./Settings";
+import SharePopup from "./SharePopup";
+import { useNavigate } from "react-router-dom";
 
-// Route for user registration
-router.post("/register", async (req, res) => {
-  const { name, email, password } = req.body;
+// Modal component
+const Modal = ({ isOpen, onClose, onAdd }) => {
+  const [email, setEmail] = useState("");
+  const [Adding, setAdding] = useState(true);
 
-  try {
-    // Check if user already exists
-    const existingUser = await User.findOne({ email });
-    if (existingUser) {
-      return res.status(400).json({ message: "User already exists" });
+  if (!isOpen) return null;
+
+  const handleAdd = () => {
+    onAdd(email);
+
+    // setEmail(""); // Clear the input field after adding
+    setAdding(false); // Close the modal after adding
+  };
+
+  const handleClose = () => {
+    setEmail("");
+    setAdding(true);
+    onClose();
+  };
+
+  return (
+    <div className={styles.modalOverlay}>
+      <div className={styles.modalContent}>
+        {Adding ? (
+          <>
+            {" "}
+            <h3>Add people to the board</h3>
+            <input
+              type="email"
+              placeholder="Enter the email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+            <div className={styles.modalActions}>
+              <button onClick={onClose} className={styles.cancelButton}>
+                Cancel
+              </button>
+              <button onClick={handleAdd} className={styles.addButton}>
+                Add Email
+              </button>
+            </div>{" "}
+          </>
+        ) : (
+          <div>
+            <h2 className={styles.added}> {email} has been added</h2>
+
+            <button onClick={handleClose} className={styles.addButton}>
+              Ok Got it
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const Dashboard = () => {
+  const { user, loggedIn, setLoggedIn } = useUser(); // Get user and loggedIn state
+  const { setUserObject, userObject } = useUser();
+  // const userId = userObject.id;
+  const [userId, setUserId] = useState(null);
+
+  const { isTaskModalOpen, setIsTaskModalOpen } = useUser();
+  const [activePage, setActivePage] = useState("Board");
+  const [isModalOpen, setIsModalOpen] = useState(false); // Track modal open state
+  const [peopleList, setPeopleList] = useState([]);
+  const [isPeopleListUpdated, setIsPeopleListUpdated] = useState(false);
+  const [tasks, setTasks] = useState([]); // State to store filtered "To Do" tasks
+  const { mail, TaskToEdit, refreshTasks, setrefreshTasks } = useUser();
+  const [timePeriod, setTimePeriod] = useState("This week"); // State for selected time period
+  const [isPopupVisible, setIsPopupVisible] = useState(false);
+  const [selectedPeriod, setSelectedPeriod] = useState("thisWeek");
+  const [filteredTasks, setFilteredTasks] = useState([]);
+  const navigate = useNavigate();
+
+  const [checklistOpenColumns, setChecklistOpenColumns] = useState({
+    backlog: false,
+    toDo: false,
+    inProgress: false,
+    done: false,
+  });
+
+  useEffect(() => {
+    if (!loggedIn) {
+      navigate("/");
     }
+  }, [loggedIn, navigate]);
 
-    // Hash the password before saving the user
-    const hashedPassword = await bcrypt.hash(password, 10);
+  useEffect(() => {
+    const fetchPeopleList = async () => {
+      try {
+        if (!userObject?.id) return;
 
-    // Create a new user
-    const newUser = new User({
-      name,
-      email,
-      password: hashedPassword,
-    });
+        const response = await fetch(
+          `https://task-manager-0yqb.onrender.com/api/user/${userObject.id}/people-list`
+        );
+        if (!response.ok) {
+          throw new Error(`Error: ${response.status} - ${response.statusText}`);
+        }
 
-    // Save the user to the database
-    await newUser.save();
+        const data = await response.json();
+        setPeopleList(data);
+        setIsPeopleListUpdated(false);
+      } catch (error) {
+        console.error("Error fetching people list:", error);
+      }
+    };
 
-    // Respond with a success message
-    res.status(201).json({ message: "User registered successfully" });
-  } catch (error) {
-    res.status(500).json({ message: "Server error" });
-  }
-});
+    fetchPeopleList();
+  }, [userObject?.id, isPeopleListUpdated]);
 
-// Route for user login
-router.post("/login", async (req, res) => {
-  const { email, password } = req.body;
-
-  try {
-    // Check if the user exists
-    const user = await User.findOne({ email });
-    if (!user) {
-      return res.status(400).json({ message: "Invalid credentials" });
-    }
-
-    // Compare the password with the hashed password stored in the database
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
-      return res.status(400).json({ message: "Invalid credentials" });
-    }
-
-    // Create a JWT token
-    const token = jwt.sign({ userId: user._id }, JWT_SECRET, {
-      expiresIn: "1h",
-    });
-
-    // Send the token and user information back to the client
-    res.json({
-      message: "Logged in successfully",
-      token,
-      user: { id: user._id, name: user.name, email: user.email },
-    });
-  } catch (error) {
-    res.status(500).json({ message: "Server error" });
-  }
-});
-
-// router.post("/add-people", async (req, res) => {
-//   try {
-//     const { userId, email } = req.body;
-
-//     if (!userId || !email) {
-//       return res.status(400).json({ error: "User ID and email are required" });
-//     }
-
-//     // Find the user by their ID
-//     const user = await User.findById(userId);
-//     if (!user) {
-//       return res.status(404).json({ error: "User not found" });
-//     }
-
-//     // Check if the email is already in the peopleList
-//     if (user.peopleList.includes(email)) {
-//       return res.status(400).json({ error: "Email already added" });
-//     }
-
-//     // Add the email to the peopleList
-//     user.peopleList.push(email);
-//     await user.save();
-
-//     res.status(200).json(user.peopleList); // Send back the updated peopleList
-//   } catch (error) {
-//     console.error("Error adding email:", error);
-//     res.status(500).json({ error: "Server error" });
-//   }
-// });
-
-// router.post("/shareAll", async (req, res) => {
-//   const { emailToShare, userId } = req.body;
-
-//   if (!userId || !emailToShare) {
-//     return res.status(400).json({ error: "User ID and email are required" });
-//   }
-
-//   try {
-//     // Find the user by their ID
-//     const user = await User.findById(userId);
-//     if (!user) {
-//       return res.status(404).json({ error: "User not found" });
-//     }
-
-//     // Check if the email is already in the peopleList
-//     if (user.peopleList.includes(emailToShare)) {
-//       return res.status(400).json({ error: "Email already added" });
-//     }
-
-//     // Add the email to the peopleList and sharedWith array
-//     user.peopleList.push(emailToShare);
-//     user.sharedWith.push(emailToShare);
-
-//     // Save the updated user document
-//     await user.save();
-
-//     res.status(200).json({
-//       success: true,
-//       peopleList: user.peopleList,
-//       message: "Access granted to all tasks.",
-//     });
-//   } catch (error) {
-//     console.error("Error updating shared access:", error);
-//     res.status(500).json({ error: "Server error" });
-//   }
-// });
-
-// routes/user.js
-router.post("/add-people", async (req, res) => {
-  try {
-    const { userId, email } = req.body;
-
-    if (!userId || !email) {
-      return res.status(400).json({ error: "User ID and email are required" });
-    }
-
-    // Find the user by their ID
-    const user = await User.findById(userId);
-    if (!user) {
-      return res.status(404).json({ error: "User not found" });
-    }
-
-    // Check if the email is already in the peopleList
-    if (user.peopleList.includes(email)) {
-      return res.status(400).json({ error: "Email already added" });
-    }
-
-    // Add the email to the peopleList
-    user.peopleList.push(email);
-    await user.save();
-
-    // Optionally update tasks to reflect this email as having access
-    await Task.updateMany(
-      { assignTo: user.email }, // or based on your logic for which tasks are being shared
-      { $addToSet: { peopleWithAccess: email } } // Add email to a field in the task schema if needed
-    );
-
-    res.status(200).json(user.peopleList); // Send back the updated peopleList
-  } catch (error) {
-    console.error("Error adding email:", error);
-    res.status(500).json({ error: "Server error" });
-  }
-});
-
-router.get("/:userId/people-list", async (req, res) => {
-  try {
-    const { userId } = req.params;
-    console.log("User ID received:", userId); // Log userId for debugging
-    const user = await User.findById(userId);
-
-    if (!user) {
-      return res.status(404).json({ message: "User not found" });
-    }
-
-    res.status(200).json(user.peopleList);
-  } catch (error) {
-    console.error("Failed to retrieve people list:", error); // Log error details
-    res
-      .status(500)
-      .json({ error: `Failed to retrieve people list: ${error.message}` });
-  }
-});
-
-router.post("/save", async (req, res) => {
-  try {
-    const { title, priority, checklist, dueDate, assignTo, postedBy } =
-      req.body;
-
-    const formattedChecklist = checklist.map((item) => ({
-      item: String(item.item), // Cast `item` explicitly as a String
-      isCompleted: Boolean(item.isCompleted), // Cast `isCompleted` as a Boolean
-    }));
-
-    // Create a new task instance
-    const newTask = new Task({
-      title,
-      priority,
-      checklist: formattedChecklist, // Use formatted checklist
-      dueDate,
-      assignTo,
-    });
-
-    const savedTask = await newTask.save();
-
-    await User.findOneAndUpdate(
-      { email: postedBy },
-      { $push: { tasksPosted: savedTask._id } },
-      { new: true }
-    );
-
-    if (assignTo !== postedBy) {
-      await User.findOneAndUpdate(
-        { email: assignTo },
-        { $push: { tasksAssigned: savedTask._id } },
-        { new: true }
+  const filterTasksByTimePeriod = React.useCallback(async (period) => {
+    try {
+      const response = await axios.get(
+        `https://task-manager-0yqb.onrender.com/api/user/filtertasks`,
+        {
+          params: { period },
+        }
       );
+      setFilteredTasks(response.data);
+    } catch (error) {
+      console.error("Error fetching filtered tasks:", error);
     }
+  }, []);
 
-    res.status(201).json(savedTask);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: "Failed to create task" });
-  }
-});
-
-// router.get("/tasks-posted/:email", async (req, res) => {
-//   const { email } = req.params;
-
-//   try {
-//     // Find user by email and populate the tasksPosted field
-//     const user = await User.findOne({ email }).populate("tasksPosted");
-
-//     if (!user) {
-//       return res.status(404).json({ message: "User not found" });
-//     }
-
-//     // Send back the populated tasksPosted array
-//     res.json(user.tasksPosted);
-//   } catch (error) {
-//     console.error("Error fetching tasks:", error);
-//     res.status(500).json({ message: "Server error. Please try again later." });
-//   }
-// });
-// routes/tasks.js
-router.get("/tasks-posted/:email", async (req, res) => {
-  const { email } = req.params;
-
-  try {
-    // Find user by email and populate tasksPosted field
-    const user = await User.findOne({ email }).populate("tasksPosted");
-
-    if (!user) {
-      return res.status(404).json({ message: "User not found" });
-    }
-
-    // Retrieve tasks posted by the user or shared with them
-    const tasks = await Task.find({
-      $or: [
-        { assignTo: user.email }, // Tasks assigned to the user
-        { peopleWithAccess: user.email }, // Tasks shared with the user
-      ],
-    });
-
-    res.json(tasks);
-  } catch (error) {
-    console.error("Error fetching tasks:", error);
-    res.status(500).json({ message: "Server error. Please try again later." });
-  }
-});
-
-router.put("/edit/:id", async (req, res) => {
-  try {
-    const { id } = req.params;
-    const updatedTask = await Task.findByIdAndUpdate(id, req.body, {
-      new: true,
-    });
-
-    if (!updatedTask) {
-      return res.status(404).json({ error: "Task not found" });
-    }
-
-    res.status(200).json(updatedTask);
-  } catch (error) {
-    console.error("Error updating task:", error);
-    res.status(500).json({ error: "Failed to update task" });
-  }
-});
-
-router.delete("/tasks/:id", async (req, res) => {
-  const { id } = req.params;
-
-  try {
-    const deletedTask = await Task.findByIdAndDelete(id);
-    if (deletedTask) {
-      res.status(200).json({ message: "Task deleted successfully" });
-    } else {
-      res.status(404).json({ message: "Task not found" });
-    }
-  } catch (error) {
-    res.status(500).json({ message: "Server error" });
-  }
-});
-
-router.put("/update", async (req, res) => {
-  const { userId, name, email, oldPassword, newPassword } = req.body;
-
-  try {
-    // Find user by ID
-    const user = await User.findById(userId);
-    if (!user) {
-      return res.status(404).json({ message: "User not found" });
-    }
-
-    // Update name and email if provided
-    if (name) user.name = name;
-    if (email) user.email = email;
-
-    // If updating password, verify old password
-    if (oldPassword && newPassword) {
-      const isMatch = await bcrypt.compare(oldPassword, user.password);
-      if (!isMatch) {
-        return res.status(400).json({ message: "Incorrect old password" });
+  useEffect(() => {
+    const fetchTasks = async () => {
+      if (!mail) {
+        console.log("No email available, skipping fetch");
+        return;
       }
 
-      // Hash the new password and set it
-      const hashedNewPassword = await bcrypt.hash(newPassword, 10);
-      user.password = hashedNewPassword;
+      try {
+        console.log("Current user email (mail):", mail);
+        console.log("Current userObject:", userObject);
+
+        const response = await fetch(
+          `https://task-manager-0yqb.onrender.com/api/user/tasks-posted/${mail}`
+        );
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+        console.log("Received tasks:", data);
+        setTasks(data);
+      } catch (err) {
+        console.error("Error fetching tasks:", err);
+      }
+    };
+
+    fetchTasks();
+  }, [mail, TaskToEdit, refreshTasks, userObject]);
+
+  const closeChecklistsInColumn = (columnName) => {
+    setChecklistOpenColumns((prev) => ({ ...prev, [columnName]: false }));
+    console.log(checklistOpenColumns);
+  };
+
+  // const closeChecklistsInColumn = (columnName) => {
+  //   setChecklistOpenColumns((prev) => ({
+  //     ...prev,
+  //     [columnName]: !prev[columnName],
+  //   }));
+  //   console.log(checklistOpenColumns);
+  // };
+
+  useEffect(() => {
+    console.log(checklistOpenColumns);
+  }, [checklistOpenColumns]);
+
+  const handleShare = (task) => {
+    const taskLink = `${window.location.origin}/tasks/${task._id}`;
+    navigator.clipboard.writeText(taskLink);
+    setIsPopupVisible(true); // Show popup when link is copied
+  };
+
+  // const filterTasksByTimePeriod = (tasks) => {
+  //   const now = new Date();
+  //   return tasks.filter((task) => {
+  //     const dueDate = new Date(task.dueDate);
+  //     if (timePeriod === "This week") {
+  //       const startOfWeek = new Date(now.setDate(now.getDate() - now.getDay()));
+  //       const endOfWeek = new Date(startOfWeek);
+  //       endOfWeek.setDate(startOfWeek.getDate() + 6);
+  //       return dueDate >= startOfWeek && dueDate <= endOfWeek;
+  //     } else if (timePeriod === "This month") {
+  //       return (
+  //         dueDate.getMonth() === now.getMonth() &&
+  //         dueDate.getFullYear() === now.getFullYear()
+  //       );
+  //     } else if (timePeriod === "This year") {
+  //       return dueDate.getFullYear() === now.getFullYear();
+  //     }
+  //     return true;
+  //   });
+  // };
+
+  // const filteredTasks = filterTasksByTimePeriod(tasks);
+
+  // Fetch tasks when component mounts or period changes
+  useEffect(() => {
+    filterTasksByTimePeriod(selectedPeriod);
+  }, [selectedPeriod, refreshTasks, filterTasksByTimePeriod]);
+
+  const today = new Date();
+  const formattedDate = today.toLocaleDateString("en-US", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+
+  // State to track which page is active (Board or Analytics)
+  // Store the list of added people
+
+  const handleAddPeople = async (email) => {
+    console.log(userObject.id);
+    try {
+      const response = await axios.post(
+        "https://task-manager-0yqb.onrender.com/api/user/add-people",
+        { userId: userObject.id, email }
+      );
+      setIsPeopleListUpdated((prev) => !prev);
+    } catch (error) {
+      console.error("Failed to add email:", error);
     }
+  };
 
-    // Save updated user information
-    await user.save();
+  const handleSaveTask = (taskData) => {
+    console.log("New Task Data:", taskData);
+    // Handle saving the task data to the backend or state
+  };
 
-    // Send updated user data back to the client
-    res.json({
-      message: "User updated successfully",
-      user: { id: user._id, name: user.name, email: user.email },
-    });
-  } catch (error) {
-    res.status(500).json({ message: "Server error" });
+  // Conditionally render dashboard only if loggedIn is true
+  if (!loggedIn) {
+    return <div>You are not logged in.</div>; // Show a message if the user is not logged in
   }
-});
 
-router.get("/tasks/:taskId", async (req, res) => {
-  const { taskId } = req.params;
+  const handleLogout = () => {
+    sessionStorage.removeItem("loggedIn");
+    sessionStorage.removeItem("userObject");
 
-  try {
-    const task = await Task.findById(taskId);
+    // Reset state in your context (if using React Context)
+    setLoggedIn(false);
+    setUserObject(null);
 
-    if (!task) {
-      return res.status(404).json({ message: "Task not found" });
+    // Optional: Redirect to login or home page
+  };
+
+  const handleChangeStatus = async (taskId, newStatus) => {
+    // Update the specific task's status without affecting others
+
+    try {
+      // Make API request to update the task status
+      setTasks((prevTasks) =>
+        prevTasks.map((task) =>
+          task._id === taskId ? { ...task, status: newStatus } : task
+        )
+      );
+      console.log(newStatus, "changed baby");
+      const response = await axios.put(
+        `https://task-manager-0yqb.onrender.com/api/user/task/${taskId}/status`,
+        {
+          status: newStatus,
+        }
+      );
+
+      if (response.status === 200) {
+        // Refresh tasks or update the state to reflect changes
+        setrefreshTasks((prev) => !prev);
+        console.log("Task status updated successfully:", response.data);
+      }
+    } catch (error) {
+      console.error("Failed to update task status:", error);
     }
+  };
 
-    res.status(200).json(task);
-  } catch (error) {
-    console.error("Error fetching task:", error);
-    res.status(500).json({ message: "Server error" });
-  }
-});
+  const backlogTasks = filteredTasks.filter(
+    (task) => task.status === "Backlog"
+  );
+  const inProgressTasks = filteredTasks.filter(
+    (task) => task.status === "In Progress"
+  );
+  const doneTasks = filteredTasks.filter((task) => task.status === "Done");
 
-router.put("/task/:id/status", async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { status } = req.body;
-    console.log(status, "Task status");
+  const backlogCount = backlogTasks.length;
+  const todoCount = filteredTasks.filter(
+    (task) =>
+      task.status === "To Do" ||
+      task.status === "In Progress" ||
+      task.status === "Backlog"
+  ).length;
+  const inProgressCount = inProgressTasks.length;
+  const completedCount = doneTasks.length;
 
-    // Ensure status is valid
-    // const validStatuses = ["Backlog", "To Do", "In Progress", "Done"];
-    // if (!validStatuses.includes(status)) {
-    //   return res.status(400).json({ error: "Invalid status value." });
-    // }
+  // const lowPriorityCount = tasks.filter(
+  //   (task) => task.priority === "Low Priority"
+  // ).length;
+  // const moderatePriorityCount = tasks.filter(
+  //   (task) => task.priority === "Moderate Priority"
+  // ).length;
+  // const highPriorityCount = tasks.filter(
+  //   (task) => task.priority === "High Priority"
+  // ).length;
+  // const dueDateCount = tasks.filter(
+  //   (task) => task.dueDate && new Date(task.dueDate) < new Date()
+  // ).length;
 
-    // Update task status
-    const updatedTask = await Task.findByIdAndUpdate(
-      id,
-      { status },
-      { new: true }
-    );
+  return (
+    <div className={styles.container}>
+      {/* Sidebar */}
+      <aside className={styles.sidebar}>
+        <div className={styles.logo}>
+          <img src={logo} alt="" />
+          <h2 className={styles.iteem}>Pro Manage</h2>
+        </div>
 
-    if (!updatedTask) {
-      return res.status(404).json({ error: "Task not found." });
-    }
+        <nav className={styles.nav}>
+          <a
+            href="#"
+            className={`${styles.navItem} ${
+              activePage === "Board" ? styles.active : ""
+            }`}
+            onClick={() => setActivePage("Board")}
+          >
+            <h2 className={styles.iteem}>Board</h2>
+          </a>
+          <a
+            href="#"
+            className={`${styles.navItem} ${
+              activePage === "Analytics" ? styles.active : ""
+            }`}
+            onClick={() => setActivePage("Analytics")}
+          >
+            <h2 className={styles.iteem}>Analytics</h2>
+          </a>
+          <a
+            href="#"
+            className={`${styles.navItem} ${
+              activePage === "Settings" ? styles.active : ""
+            }`}
+            onClick={() => setActivePage("Settings")}
+          >
+            <h2 className={styles.iteem}>Settings</h2>
+          </a>
+        </nav>
 
-    res.json(updatedTask);
-  } catch (error) {
-    res.status(500).json({ error: "Failed to update task status." });
-  }
-});
+        <button className={styles.logoutButton} onClick={() => handleLogout()}>
+          <img src={logout} alt="Logout" />
+          <h2 className={styles.iteem}>Log out</h2>
+        </button>
+      </aside>
 
-router.get("/analytics", async (req, res) => {
-  try {
-    // Count tasks by priority
-    const lowPriorityCount = await Task.countDocuments({
-      priority: "Low Priority",
-    });
-    const moderatePriorityCount = await Task.countDocuments({
-      priority: "Moderate Priority",
-    });
-    const highPriorityCount = await Task.countDocuments({
-      priority: "High Priority",
-    });
+      {/* Main Content */}
+      <main className={styles.mainContent}>
+        {/* Header */}
+        <header className={styles.header}>
+          <div className={styles.headerLeft}>
+            <h1>Welcome {user.name}</h1>
+          </div>
+          <div className={styles.headerRight}>
+            <p className={styles.date}>{formattedDate}</p>
+            {isPopupVisible && (
+              <SharePopup
+                message="Link copied to clipboard"
+                onClose={() => setIsPopupVisible(false)}
+              />
+            )}
+          </div>
+        </header>
 
-    // Count tasks with due dates in the past
-    const dueDateCount = await Task.countDocuments({
-      dueDate: { $lt: new Date() },
-    });
+        {/* Conditionally render content based on active page */}
+        {activePage === "Board" ? (
+          <>
+            {/* Board Header */}
+            <div className={styles.boardHeader}>
+              <div className={styles.boardleft}>
+                <h2>Board</h2>
+                <button
+                  className={styles.addPeopleButton}
+                  onClick={() => setIsModalOpen(true)}
+                >
+                  Add People
+                </button>
+                <img
+                  src={People}
+                  className={styles.addPeople}
+                  alt="Add People"
+                />
+              </div>
 
-    res.status(200).json({
-      lowPriorityCount,
-      moderatePriorityCount,
-      highPriorityCount,
-      dueDateCount,
-    });
-  } catch (error) {
-    console.error("Error fetching analytics data:", error);
-    res.status(500).json({ message: "Failed to fetch analytics data." });
-  }
-});
+              <select
+                value={selectedPeriod}
+                onChange={(e) => setSelectedPeriod(e.target.value)}
+                className={styles.periodSelect}
+              >
+                <option value="thisWeek">This week</option>
+                <option value="thisMonth">This month</option>
+                <option value="thisYear">This year</option>
+              </select>
+            </div>
 
-function getDateRange(period) {
-  const now = new Date();
-  let start, end;
+            {/* Kanban Board */}
+            <div className={styles.kanbanBoard}>
+              {/* Backlog Column */}
+              <div className={styles.column}>
+                <div className={styles.columnHeader}>
+                  <h3>Backlog</h3>
+                  <img
+                    src={deleteimg}
+                    alt="Delete"
+                    onClick={() => closeChecklistsInColumn("backlog")}
+                  />
+                </div>
+                <div className={styles.columnContent}>
+                  {filteredTasks
+                    .filter((task) => task.status === "Backlog")
+                    .map((task) => (
+                      <TaskCard
+                        key={task._id}
+                        task={task}
+                        onChangeStatus={handleChangeStatus}
+                        refreshTasks={setrefreshTasks}
+                        handleShare={handleShare}
+                        checklistOpen={checklistOpenColumns.backlog}
+                        setChecklistOpenColumns={setChecklistOpenColumns}
+                        columnName={"backlog"}
+                      />
+                    ))}
+                </div>
+              </div>
 
-  switch (period) {
-    case "today":
-      start = new Date(now.setHours(0, 0, 0, 0));
-      end = new Date(now.setHours(23, 59, 59, 999));
-      break;
-    case "This week":
-      start = new Date(now.setDate(now.getDate() - now.getDay()));
-      end = new Date(now.setDate(now.getDate() + (6 - now.getDay())));
-      break;
-    case "This month":
-      start = new Date(now.getFullYear(), now.getMonth(), 1);
-      end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-      break;
+              {/* To do Column */}
+              <div className={styles.column}>
+                <div className={styles.columnHeader}>
+                  <h3>To do</h3>
+                  <img
+                    src={remove}
+                    alt="Remove"
+                    onClick={() => setIsTaskModalOpen(true)}
+                  />
 
-    case "This year":
-      start = new Date(now.getFullYear(), 0, 1); // January 1st, start of the year
-      end = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999); // December 31st, end of the year
-      break;
-    default:
-      start = new Date(now.setDate(now.getDate() - now.getDay()));
-      end = new Date(now.setDate(now.getDate() + (6 - now.getDay())));
-  }
+                  <img
+                    src={deleteimg}
+                    alt="Delete"
+                    onClick={() => closeChecklistsInColumn("toDo")}
+                  />
+                </div>
+                <div className={styles.columnContent}>
+                  {filteredTasks.map((task) => (
+                    <TaskCard
+                      key={task._id}
+                      task={task}
+                      onChangeStatus={handleChangeStatus}
+                      refreshTasks={setrefreshTasks}
+                      handleShare={handleShare}
+                      checklistOpen={checklistOpenColumns.toDo}
+                      setChecklistOpenColumns={setChecklistOpenColumns}
+                      columnName={"toDo"}
+                    />
+                  ))}
+                </div>
+              </div>
 
-  return { start, end };
-}
+              {/* In Progress Column */}
+              <div className={styles.column}>
+                <div className={styles.columnHeader}>
+                  <h3>In progress</h3>
+                  <img
+                    src={deleteimg}
+                    alt="Delete"
+                    onClick={() => closeChecklistsInColumn("inProgress")}
+                  />
+                </div>
+                <div className={styles.columnContent}>
+                  {filteredTasks
+                    .filter((task) => task.status === "In Progress")
+                    .map((task) => (
+                      <TaskCard
+                        key={task.id}
+                        task={task}
+                        onChangeStatus={handleChangeStatus}
+                        refreshTasks={setrefreshTasks}
+                        handleShare={handleShare}
+                        checklistOpen={checklistOpenColumns.inProgress}
+                        setChecklistOpenColumns={setChecklistOpenColumns}
+                        columnName={"inProgress"}
+                      />
+                    ))}
+                </div>
+              </div>
 
-router.get("/filtertasks", async (req, res) => {
-  const { period } = req.query;
-  const { start, end } = getDateRange(period);
+              {/* Done Column */}
+              <div className={styles.column}>
+                <div className={styles.columnHeader}>
+                  <h3>Done</h3>
+                  <img
+                    src={deleteimg}
+                    alt="Delete"
+                    onClick={() => closeChecklistsInColumn("done")}
+                  />
+                </div>
+                <div className={styles.columnContent}>
+                  {filteredTasks
+                    .filter((task) => task.status === "Done")
+                    .map((task) => (
+                      <TaskCard
+                        key={task.id}
+                        task={task}
+                        onChangeStatus={handleChangeStatus}
+                        refreshTasks={setrefreshTasks}
+                        handleShare={handleShare}
+                        checklistOpen={checklistOpenColumns.done}
+                        setChecklistOpenColumns={setChecklistOpenColumns}
+                        columnName={"done"}
+                      />
+                    ))}
+                </div>
+              </div>
+            </div>
+          </>
+        ) : activePage === "Analytics" ? (
+          <Analytics
+            backlogCount={backlogCount}
+            todoCount={todoCount}
+            inProgressCount={inProgressCount}
+            completedCount={completedCount}
+            // lowPriorityCount={lowPriorityCount}
+            // moderatePriorityCount={moderatePriorityCount}
+            // highPriorityCount={highPriorityCount}
+            // dueDateCount={dueDateCount}
+          />
+        ) : activePage === "Settings" ? (
+          <Settings />
+        ) : null}
 
-  try {
-    const filter = start && end ? { dueDate: { $gte: start, $lte: end } } : {};
-    const tasks = await Task.find(filter);
-    res.json(tasks);
-  } catch (error) {
-    res.status(500).json({ message: "Error retrieving tasks", error });
-  }
-});
+        {/* Add People Modal */}
+        <Modal
+          isOpen={isModalOpen}
+          onClose={() => setIsModalOpen(false)}
+          onAdd={handleAddPeople}
+        />
 
-module.exports = router;
+        <TaskModal
+          isOpen={isTaskModalOpen}
+          onClose={() => setIsTaskModalOpen(false)}
+          onSave={handleSaveTask}
+          peopleList={peopleList}
+          filterTasksByTimePeriod={filterTasksByTimePeriod}
+          selectedPeriod={selectedPeriod}
+        />
+      </main>
+    </div>
+  );
+};
+
+export default Dashboard;
