@@ -12,6 +12,7 @@ import TaskCard from "./TaskCard";
 import Analytics from "./Analytics";
 import Settings from "./Settings";
 import SharePopup from "./SharePopup";
+import { useNavigate } from "react-router-dom";
 
 // Modal component
 const Modal = ({ isOpen, onClose, onAdd }) => {
@@ -57,7 +58,7 @@ const Modal = ({ isOpen, onClose, onAdd }) => {
           </>
         ) : (
           <div>
-            <h2 className={styles.added}> {email} has been added}</h2>
+            <h2 className={styles.added}> {email} has been added</h2>
 
             <button onClick={handleClose} className={styles.addButton}>
               Ok Got it
@@ -72,7 +73,9 @@ const Modal = ({ isOpen, onClose, onAdd }) => {
 const Dashboard = () => {
   const { user, loggedIn, setLoggedIn } = useUser(); // Get user and loggedIn state
   const { setUserObject, userObject } = useUser();
-  const userId = userObject.id;
+  // const userId = userObject.id;
+  const [userId, setUserId] = useState(null);
+
   const { isTaskModalOpen, setIsTaskModalOpen } = useUser();
   const [activePage, setActivePage] = useState("Board");
   const [isModalOpen, setIsModalOpen] = useState(false); // Track modal open state
@@ -84,6 +87,7 @@ const Dashboard = () => {
   const [isPopupVisible, setIsPopupVisible] = useState(false);
   const [selectedPeriod, setSelectedPeriod] = useState("thisWeek");
   const [filteredTasks, setFilteredTasks] = useState([]);
+  const navigate = useNavigate();
 
   const [checklistOpenColumns, setChecklistOpenColumns] = useState({
     backlog: false,
@@ -93,55 +97,77 @@ const Dashboard = () => {
   });
 
   useEffect(() => {
+    if (!loggedIn) {
+      navigate("/");
+    }
+  }, [loggedIn, navigate]);
+
+  useEffect(() => {
     const fetchPeopleList = async () => {
       try {
-        console.log(userId);
+        if (!userObject?.id) return;
+
         const response = await fetch(
-          `https://task-manager-0yqb.onrender.com/api/user/${userId}/people-list`
+          `https://task-manager-0yqb.onrender.com/api/user/${userObject.id}/people-list`
         );
         if (!response.ok) {
           throw new Error(`Error: ${response.status} - ${response.statusText}`);
         }
 
         const data = await response.json();
-        console.log(data);
         setPeopleList(data);
-        console.log([peopleList]);
         setIsPeopleListUpdated(false);
       } catch (error) {
         console.error("Error fetching people list:", error);
-        console.log(error);
       }
     };
 
     fetchPeopleList();
-  }, [userId, isPeopleListUpdated]);
+  }, [userObject?.id, isPeopleListUpdated]);
+
+  const filterTasksByTimePeriod = React.useCallback(async (period) => {
+    try {
+      const response = await axios.get(
+        `https://task-manager-0yqb.onrender.com/api/user/filtertasks`,
+        {
+          params: { period },
+        }
+      );
+      setFilteredTasks(response.data);
+    } catch (error) {
+      console.error("Error fetching filtered tasks:", error);
+    }
+  }, []);
 
   useEffect(() => {
-    // Define an asynchronous function to fetch tasks
     const fetchTasks = async () => {
-      console.log(mail);
+      if (!mail) {
+        console.log("No email available, skipping fetch");
+        return;
+      }
+
       try {
-        const response = await fetch(`
-          https://task-manager-0yqb.onrender.com/api/user/tasks-posted/${mail}`);
+        console.log("Current user email (mail):", mail);
+        console.log("Current userObject:", userObject);
+
+        const response = await fetch(
+          `https://task-manager-0yqb.onrender.com/api/user/tasks-posted/${mail}`
+        );
 
         if (!response.ok) {
-          throw new Error("Failed to fetch tasks.");
+          throw new Error(`HTTP error! status: ${response.status}`);
         }
 
         const data = await response.json();
-        setTasks(data); // Set fetched tasks in state
-        console.log(tasks);
+        console.log("Received tasks:", data);
+        setTasks(data);
       } catch (err) {
-        console.log(err); // Handle any errors
+        console.error("Error fetching tasks:", err);
       }
     };
 
-    // Only fetch if email is provided
-    if (mail) {
-      fetchTasks();
-    }
-  }, [mail, TaskToEdit, refreshTasks]);
+    fetchTasks();
+  }, [mail, TaskToEdit, refreshTasks, userObject]);
 
   const closeChecklistsInColumn = (columnName) => {
     setChecklistOpenColumns((prev) => ({ ...prev, [columnName]: false }));
@@ -189,28 +215,10 @@ const Dashboard = () => {
 
   // const filteredTasks = filterTasksByTimePeriod(tasks);
 
-  const filterTasksByTimePeriod = async (period) => {
-    try {
-      const response = await axios.get(
-        `https://task-manager-0yqb.onrender.com/api/user/filtertasks`,
-        {
-          params: { period },
-        }
-      );
-      console.log(response.data);
-      setFilteredTasks(response.data);
-    } catch (error) {
-      console.error("Error fetching filtered tasks:", error);
-    }
-  };
-
-  // const filteredTasks = filterTasksByTimePeriod(selectedPeriod);
-
   // Fetch tasks when component mounts or period changes
   useEffect(() => {
     filterTasksByTimePeriod(selectedPeriod);
-    console.log(selectedPeriod);
-  }, [selectedPeriod, refreshTasks]);
+  }, [selectedPeriod, refreshTasks, filterTasksByTimePeriod]);
 
   const today = new Date();
   const formattedDate = today.toLocaleDateString("en-US", {
@@ -284,12 +292,21 @@ const Dashboard = () => {
     }
   };
 
-  const backlogTasks = tasks.filter((task) => task.status === "Backlog");
-  const inProgressTasks = tasks.filter((task) => task.status === "In Progress");
-  const doneTasks = tasks.filter((task) => task.status === "Done");
+  const backlogTasks = filteredTasks.filter(
+    (task) => task.status === "Backlog"
+  );
+  const inProgressTasks = filteredTasks.filter(
+    (task) => task.status === "In Progress"
+  );
+  const doneTasks = filteredTasks.filter((task) => task.status === "Done");
 
   const backlogCount = backlogTasks.length;
-  const todoCount = tasks.filter((task) => task.status === "To Do").length;
+  const todoCount = filteredTasks.filter(
+    (task) =>
+      task.status === "To Do" ||
+      task.status === "In Progress" ||
+      task.status === "Backlog"
+  ).length;
   const inProgressCount = inProgressTasks.length;
   const completedCount = doneTasks.length;
 
@@ -347,7 +364,7 @@ const Dashboard = () => {
 
         <button className={styles.logoutButton} onClick={() => handleLogout()}>
           <img src={logout} alt="Logout" />
-          <h2>Log out</h2>
+          <h2 className={styles.iteem}>Log out</h2>
         </button>
       </aside>
 
@@ -390,14 +407,13 @@ const Dashboard = () => {
               </div>
 
               <select
-                onSelect={setrefreshTasks((prev) => !prev)}
-                // onChange={(e) => setTimePeriod(e.target.value)}
+                value={selectedPeriod}
                 onChange={(e) => setSelectedPeriod(e.target.value)}
                 className={styles.periodSelect}
               >
-                <option value="This week">This week</option>
-                <option value="This month">This month</option>
-                <option value="This year">This year</option>
+                <option value="thisWeek">This week</option>
+                <option value="thisMonth">This month</option>
+                <option value="thisYear">This year</option>
               </select>
             </div>
 
