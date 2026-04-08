@@ -23,6 +23,11 @@ const corsOptions = {
 
 app.get("/", (req, res) => {
   res.send("App working lad");
+  res.status(200).json({
+    success: true,
+    message: "Server is alive",
+    timestamp: new Date(),
+  });
 });
 
 app.use(cors(corsOptions));
