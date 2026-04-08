@@ -30,6 +30,11 @@ app.get("/", (req, res) => {
   });
 });
 
+
+app.get("/ping", (req, res) => {
+  res.status(200).json({ status: "ok" });
+});
+
 app.use(cors(corsOptions));
 app.use(bodyParser.json());
 
